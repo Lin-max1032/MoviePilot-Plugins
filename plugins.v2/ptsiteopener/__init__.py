@@ -19,7 +19,8 @@ from app.plugins import _PluginBase
 from app.schemas.types import EventType, NotificationType
 
 
-DEFAULT_CDP_URL = "http://music.lulin.fun:5656/json/version"
+DEFAULT_CDP_URL = ""
+CDP_URL_PLACEHOLDER = "例如：http://127.0.0.1:9222/json/version"
 DEFAULT_SCHEDULE = "0 */6 * * *"
 DEFAULT_TTL_MINUTES = 5
 PLUGIN_ID = "PTSiteOpener"
@@ -247,8 +248,8 @@ class PTSiteOpener(_PluginBase):
     plugin_name = "PT站点自动打开"
     plugin_desc = "按用户设置的计划任务，通过远程 CDP 打开 MoviePilot 中已启用的站点。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.3.0"
-    plugin_author = "Codex"
+    plugin_version = "1.3.1"
+    plugin_author = "Lin-max1032"
     author_url = "https://github.com/Lin-max1032/MoviePilot-Plugins"
     plugin_config_prefix = "ptsiteopener_"
     plugin_order = 50
@@ -293,7 +294,8 @@ class PTSiteOpener(_PluginBase):
         self._config_error = None
 
         try:
-            _validate_cdp_url(self._cdp_url)
+            if self._cdp_url:
+                _validate_cdp_url(self._cdp_url)
             CronTrigger.from_crontab(self._schedule)
         except Exception as error:
             self._config_error = str(error)
@@ -419,7 +421,7 @@ class PTSiteOpener(_PluginBase):
                                         "props": {
                                             "model": "cdp_url",
                                             "label": "远程 CDP 地址",
-                                            "placeholder": DEFAULT_CDP_URL,
+                                            "placeholder": CDP_URL_PLACEHOLDER,
                                         },
                                     }
                                 ],
@@ -435,11 +437,11 @@ class PTSiteOpener(_PluginBase):
                                 "props": {"cols": 12, "md": 8},
                                 "content": [
                                     {
-                                        "component": "VTextField",
+                                        "component": "VCronField",
                                         "props": {
                                             "model": "schedule",
-                                            "label": "计划任务 Cron（五段）",
-                                            "placeholder": DEFAULT_SCHEDULE,
+                                            "label": "执行周期",
+                                            "placeholder": "五段 Cron 表达式",
                                         },
                                     }
                                 ],
@@ -585,6 +587,8 @@ class PTSiteOpener(_PluginBase):
             register_plugin_api(plugin_id=self.__class__.__name__)
 
     def _connect_cdp(self) -> _CdpConnection:
+        if not self._cdp_url:
+            raise ValueError("未配置远程 CDP 地址")
         return _connect_cdp(self._cdp_url)
 
     def _record_result(
