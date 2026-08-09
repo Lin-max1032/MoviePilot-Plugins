@@ -26,14 +26,28 @@ PLUGIN_ID = "PTSiteOpener"
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 
-def select_site_urls(
+def parse_site_cookie(cookie: Any) -> List[Tuple[str, str]]:
+    """Parse MoviePilot's semicolon-separated site cookie string."""
+    if not isinstance(cookie, str):
+        return []
+
+    pairs = []
+    for segment in cookie.split(";"):
+        name, separator, value = segment.strip().partition("=")
+        if not separator or not name:
+            continue
+        pairs.append((name.strip(), value.strip()))
+    return pairs
+
+
+def select_sites(
     sites: Iterable[Any],
     site_mode: str = "all",
     selected_site_ids: Optional[Iterable[Any]] = None,
-) -> List[str]:
-    """Return active, unique HTTP(S) site URLs in MoviePilot order."""
+) -> List[Any]:
+    """Return active, unique HTTP(S) site objects in MoviePilot order."""
     selected = {str(site_id) for site_id in (selected_site_ids or [])}
-    urls: List[str] = []
+    selected_sites: List[Any] = []
     seen = set()
 
     for site in sites or []:
@@ -52,9 +66,30 @@ def select_site_urls(
         if url in seen:
             continue
         seen.add(url)
-        urls.append(url)
+        selected_sites.append(site)
 
-    return urls
+    return selected_sites
+
+
+def select_site_urls(
+    sites: Iterable[Any],
+    site_mode: str = "all",
+    selected_site_ids: Optional[Iterable[Any]] = None,
+) -> List[str]:
+    """Return active, unique HTTP(S) site URLs in MoviePilot order."""
+    return [
+        getattr(site, "url").strip()
+        for site in select_sites(sites, site_mode, selected_site_ids)
+    ]
+
+
+def _sanitize_error(error: Exception, secret_values: Iterable[str]) -> str:
+    """Remove cookie values from a CDP error before it reaches logs."""
+    message = str(error)
+    for secret in secret_values:
+        if secret:
+            message = message.replace(secret, "[redacted]")
+    return message
 
 
 def resolve_websocket_url(version_info: Dict[str, Any], endpoint_url: str) -> str:
@@ -100,20 +135,26 @@ class _CdpConnection:
         self._next_id = 0
         self._closed = False
 
-    def send(self, method: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def send(
+        self,
+        method: str,
+        params: Optional[Dict[str, Any]] = None,
+        session_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         with self._lock:
             if self._closed:
                 raise RuntimeError("CDP connection is closed")
             self._next_id += 1
             message_id = self._next_id
+            message = {
+                "id": message_id,
+                "method": method,
+                "params": params or {},
+            }
+            if session_id:
+                message["sessionId"] = session_id
             self._socket.send(
-                json.dumps(
-                    {
-                        "id": message_id,
-                        "method": method,
-                        "params": params or {},
-                    }
-                )
+                json.dumps(message)
             )
 
             while True:
@@ -169,7 +210,7 @@ class PTSiteOpener(_PluginBase):
     plugin_name = "PT站点自动打开"
     plugin_desc = "按用户设置的计划任务，通过远程 CDP 打开 MoviePilot 中已启用的站点。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.1.3"
+    plugin_version = "1.2.0"
     plugin_author = "Codex"
     author_url = "https://github.com/Lin-max1032/MoviePilot-Plugins"
     plugin_config_prefix = "ptsiteopener_"
@@ -184,6 +225,7 @@ class PTSiteOpener(_PluginBase):
         self._schedule = DEFAULT_SCHEDULE
         self._ttl_minutes = DEFAULT_TTL_MINUTES
         self._notify_enabled = False
+        self._reuse_site_cookie = True
         self._site_mode = "all"
         self._selected_site_ids: List[str] = []
         self._runs: List[_OpenRun] = []
@@ -199,6 +241,7 @@ class PTSiteOpener(_PluginBase):
         self._schedule = str(config.get("schedule") or DEFAULT_SCHEDULE).strip()
         self._ttl_minutes = self._coerce_ttl(config.get("ttl_minutes", DEFAULT_TTL_MINUTES))
         self._notify_enabled = bool(config.get("notify_enabled", False))
+        self._reuse_site_cookie = bool(config.get("reuse_site_cookie", True))
         self._site_mode = str(config.get("site_mode") or "all")
         if self._site_mode not in {"all", "selected"}:
             self._site_mode = "all"
@@ -286,7 +329,7 @@ class PTSiteOpener(_PluginBase):
                         "content": [
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
+                                "props": {"cols": 12, "md": 4},
                                 "content": [
                                     {
                                         "component": "VSwitch",
@@ -296,13 +339,26 @@ class PTSiteOpener(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
+                                "props": {"cols": 12, "md": 4},
                                 "content": [
                                     {
                                         "component": "VSwitch",
                                         "props": {
                                             "model": "notify_enabled",
                                             "label": "开启通知推送",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "reuse_site_cookie",
+                                            "label": "复用站点 Cookie",
                                         },
                                     }
                                 ],
@@ -412,6 +468,7 @@ class PTSiteOpener(_PluginBase):
             "schedule": DEFAULT_SCHEDULE,
             "ttl_minutes": DEFAULT_TTL_MINUTES,
             "notify_enabled": False,
+            "reuse_site_cookie": True,
             "site_mode": "all",
             "site_ids": [],
         }
@@ -506,6 +563,103 @@ class PTSiteOpener(_PluginBase):
             "opened": opened_urls,
         }
 
+    def _open_site(
+        self,
+        cdp: _CdpConnection,
+        site: Any,
+        run: _OpenRun,
+    ) -> Tuple[Optional[str], Optional[str]]:
+        url = str(getattr(site, "url", "")).strip()
+        cookie_pairs = (
+            parse_site_cookie(getattr(site, "cookie", None))
+            if self._reuse_site_cookie
+            else []
+        )
+        if not cookie_pairs:
+            target = cdp.send(
+                "Target.createTarget",
+                {"url": url, "background": True},
+            )
+            target_id = target.get("targetId") if isinstance(target, dict) else None
+            if not target_id:
+                raise RuntimeError("CDP did not return targetId")
+            return target_id, None
+
+        blank_target_id: Optional[str] = None
+        try:
+            target = cdp.send(
+                "Target.createTarget",
+                {"url": "about:blank", "background": True},
+            )
+            blank_target_id = target.get("targetId") if isinstance(target, dict) else None
+            if not blank_target_id:
+                raise RuntimeError("CDP did not return targetId")
+
+            attached = cdp.send(
+                "Target.attachToTarget",
+                {"targetId": blank_target_id, "flatten": True},
+            )
+            session_id = attached.get("sessionId") if isinstance(attached, dict) else None
+            if not session_id:
+                raise RuntimeError("CDP did not return target sessionId")
+        except Exception as error:
+            if blank_target_id:
+                try:
+                    cdp.send("Target.closeTarget", {"targetId": blank_target_id})
+                except Exception:
+                    pass
+            fallback = cdp.send(
+                "Target.createTarget",
+                {"url": url, "background": True},
+            )
+            target_id = fallback.get("targetId") if isinstance(fallback, dict) else None
+            if not target_id:
+                raise RuntimeError("CDP did not return fallback targetId") from error
+            reason = _sanitize_error(error, [value for _, value in cookie_pairs])
+            return target_id, reason
+
+        failures = []
+        for name, value in cookie_pairs:
+            try:
+                result = cdp.send(
+                    "Network.setCookie",
+                    {"name": name, "value": value, "url": url},
+                    session_id=session_id,
+                )
+                if isinstance(result, dict) and result.get("success") is False:
+                    raise RuntimeError("CDP rejected cookie")
+            except Exception as error:
+                failures.append(
+                    _sanitize_error(error, [cookie_value for _, cookie_value in cookie_pairs])
+                )
+
+        cdp.send(
+            "Page.navigate",
+            {"url": url},
+            session_id=session_id,
+        )
+        return blank_target_id, "; ".join(dict.fromkeys(failures)) or None
+
+    def _record_cookie_failures(self, failures: List[Tuple[str, str, str]]) -> None:
+        if not failures:
+            return
+
+        lines = []
+        for site_name, url, reason in failures:
+            lines.append(f"{site_name} ({url})：{reason}")
+            logger.warning(f"站点 Cookie 注入失败 {site_name} ({url})：{reason}")
+
+        if not self._notify_enabled:
+            return
+        try:
+            self.post_message(
+                mtype=NotificationType.Plugin,
+                title=f"{self.plugin_name} Cookie 告警",
+                text="Cookie 注入失败：\n" + "\n".join(lines),
+            )
+        except Exception as error:
+            logger.warning(f"发送 PT 站点 Cookie 告警失败：{error}")
+
     def run_once(self, manual: bool = False) -> List[str]:
         """Execute one scheduled or manual run and return successfully opened URLs."""
         if self._config_error:
@@ -520,11 +674,12 @@ class PTSiteOpener(_PluginBase):
 
         try:
             sites = SiteOper().list_active()
-            urls = select_site_urls(
+            selected_sites = select_sites(
                 sites,
                 site_mode=self._site_mode,
                 selected_site_ids=self._selected_site_ids,
             )
+            urls = [getattr(site, "url").strip() for site in selected_sites]
         except Exception as error:
             self._record_result(f"读取站点失败：{error}", level="error")
             return []
@@ -544,22 +699,33 @@ class PTSiteOpener(_PluginBase):
             self._runs.append(run)
 
         opened_urls: List[str] = []
-        for url in urls:
+        cookie_failures: List[Tuple[str, str, str]] = []
+        for site in selected_sites:
+            url = str(getattr(site, "url", "")).strip()
             try:
                 with run.lock:
                     if run.cleaned:
                         break
-                    target = cdp.send(
-                        "Target.createTarget",
-                        {"url": url, "background": True},
+                    target_id, cookie_failure = self._open_site(
+                        cdp,
+                        site,
+                        run,
                     )
-                    target_id = target.get("targetId") if isinstance(target, dict) else None
                     if not target_id:
                         raise RuntimeError("CDP did not return targetId")
                     run.target_ids.append(target_id)
                     opened_urls.append(url)
+                    if cookie_failure:
+                        site_name = (
+                            getattr(site, "name", None)
+                            or getattr(site, "domain", None)
+                            or url
+                        )
+                        cookie_failures.append((str(site_name), url, cookie_failure))
             except Exception as error:
                 logger.warning(f"打开站点失败 {url}：{error}")
+
+        self._record_cookie_failures(cookie_failures)
 
         with run.lock:
             if run.cleaned:
