@@ -247,7 +247,7 @@ class PTSiteOpener(_PluginBase):
     plugin_name = "PT站点自动打开"
     plugin_desc = "按用户设置的计划任务，通过远程 CDP 打开 MoviePilot 中已启用的站点。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.2.0"
+    plugin_version = "1.3.0"
     plugin_author = "Codex"
     author_url = "https://github.com/Lin-max1032/MoviePilot-Plugins"
     plugin_config_prefix = "ptsiteopener_"
@@ -501,6 +501,28 @@ class PTSiteOpener(_PluginBase):
                             },
                         ],
                     },
+                    {
+                        "component": "VRow",
+                        "props": {"class": "mb-2"},
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VTextarea",
+                                        "props": {
+                                            "model": "manual_site_cookies",
+                                            "label": "手动站点 Cookie",
+                                            "placeholder": "站点名称:Cookie，例如：朱雀:socute=...",
+                                            "rows": 4,
+                                            "autoGrow": True,
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    },
                 ],
             }
         ], {
@@ -510,6 +532,7 @@ class PTSiteOpener(_PluginBase):
             "ttl_minutes": DEFAULT_TTL_MINUTES,
             "notify_enabled": False,
             "reuse_site_cookie": True,
+            "manual_site_cookies": "",
             "site_mode": "all",
             "site_ids": [],
         }

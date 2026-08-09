@@ -177,6 +177,7 @@ class PluginTestCase(unittest.TestCase):
         self.assertEqual(model["schedule"], "0 */6 * * *")
         self.assertEqual(model["ttl_minutes"], 5)
         self.assertFalse(model["notify_enabled"])
+        self.assertEqual(model["manual_site_cookies"], "")
         self.assertTrue(plugin.get_state())
 
         services = plugin.get_service()
@@ -212,7 +213,7 @@ class PluginTestCase(unittest.TestCase):
         plugin = self.module.PTSiteOpener()
         form, _ = plugin.get_form()
 
-        self.assertEqual(plugin.plugin_version, "1.2.0")
+        self.assertEqual(plugin.plugin_version, "1.3.0")
         self.assertNotIn("?", plugin.plugin_name)
         self.assertNotIn("?", plugin.plugin_desc)
 
@@ -305,6 +306,27 @@ class PluginTestCase(unittest.TestCase):
         self.assertIn(
             "reuse_site_cookie",
             [item.get("props", {}).get("model") for item in switches],
+        )
+
+    def test_manual_site_cookie_field_is_multiline(self):
+        plugin = self.module.PTSiteOpener()
+        plugin.init_plugin({"enabled": True})
+
+        form, _ = plugin.get_form()
+        fields = []
+
+        def collect(items):
+            for item in items:
+                if item.get("component") == "VTextarea":
+                    fields.append(item)
+                collect(item.get("content", []))
+
+        collect(form)
+
+        self.assertEqual(len(fields), 1)
+        self.assertEqual(
+            fields[0]["props"]["model"],
+            "manual_site_cookies",
         )
 
     def test_manual_run_button_is_on_data_page_not_config_form(self):
@@ -411,6 +433,77 @@ class PluginTestCase(unittest.TestCase):
         self.assertEqual(cdp.calls[4][2], "session-1")
         self.assertEqual(cdp.calls[4][1]["url"], "https://one.example/")
         self.assertEqual(len(FakeTimer.instances), 1)
+
+    def test_run_once_injects_manual_cookie_when_site_cookie_is_missing(self):
+        sites = [
+            types.SimpleNamespace(
+                id=1,
+                name="朱雀",
+                url="https://one.example/",
+                is_active=True,
+                cookie=None,
+            )
+        ]
+        cdp = FakeCdp()
+        self.module.SiteOper = lambda: types.SimpleNamespace(list_active=lambda: sites)
+        self.module.threading.Timer = FakeTimer
+        FakeTimer.instances.clear()
+
+        plugin = self.module.PTSiteOpener()
+        plugin.init_plugin(
+            {
+                "enabled": True,
+                "manual_site_cookies": "朱雀:socute=manual",
+            }
+        )
+        plugin._connect_cdp = lambda: cdp
+
+        result = plugin.run_once()
+
+        self.assertEqual(result, ["https://one.example/"])
+        self.assertEqual(
+            [method for method, _, _ in cdp.calls],
+            [
+                "Target.createTarget",
+                "Target.attachToTarget",
+                "Network.setCookie",
+                "Page.navigate",
+                "Target.activateTarget",
+            ],
+        )
+        self.assertEqual(cdp.calls[2][1]["name"], "socute")
+        self.assertEqual(cdp.calls[2][1]["value"], "manual")
+
+    def test_manual_cookie_is_disabled_with_site_cookie_reuse_switch(self):
+        sites = [
+            types.SimpleNamespace(
+                id=1,
+                name="朱雀",
+                url="https://one.example/",
+                is_active=True,
+                cookie=None,
+            )
+        ]
+        cdp = FakeCdp()
+        self.module.SiteOper = lambda: types.SimpleNamespace(list_active=lambda: sites)
+        self.module.threading.Timer = FakeTimer
+        FakeTimer.instances.clear()
+
+        plugin = self.module.PTSiteOpener()
+        plugin.init_plugin(
+            {
+                "enabled": True,
+                "reuse_site_cookie": False,
+                "manual_site_cookies": "朱雀:socute=manual",
+            }
+        )
+        plugin._connect_cdp = lambda: cdp
+
+        result = plugin.run_once()
+
+        self.assertEqual(result, ["https://one.example/"])
+        self.assertNotIn("Network.setCookie", [method for method, _, _ in cdp.calls])
+        self.assertEqual(cdp.calls[0][1]["url"], "https://one.example/")
 
     def test_cookie_injection_failure_logs_and_notifies_without_exposing_value(self):
         sites = [
