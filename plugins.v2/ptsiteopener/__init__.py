@@ -40,6 +40,26 @@ def parse_site_cookie(cookie: Any) -> List[Tuple[str, str]]:
     return pairs
 
 
+def parse_manual_site_cookies(raw_config: Any) -> Dict[str, str]:
+    """Parse one manual Cookie header per site name without exposing values."""
+    if not isinstance(raw_config, str):
+        return {}
+
+    manual_cookies: Dict[str, str] = {}
+    for line_number, raw_line in enumerate(raw_config.splitlines(), start=1):
+        line = raw_line.strip()
+        if not line:
+            continue
+        site_name, separator, cookie = line.partition(":")
+        site_name = site_name.strip()
+        cookie = cookie.strip()
+        if not separator or not site_name or not parse_site_cookie(cookie):
+            logger.warning(f"忽略第 {line_number} 行无效手动站点 Cookie 配置")
+            continue
+        manual_cookies[site_name] = cookie
+    return manual_cookies
+
+
 def select_sites(
     sites: Iterable[Any],
     site_mode: str = "all",

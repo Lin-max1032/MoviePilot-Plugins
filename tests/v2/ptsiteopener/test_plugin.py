@@ -248,6 +248,26 @@ class PluginTestCase(unittest.TestCase):
         )
         self.assertEqual(self.module.parse_site_cookie(None), [])
 
+    def test_parse_manual_site_cookies_splits_only_first_colon(self):
+        self.assertEqual(
+            self.module.parse_manual_site_cookies(
+                "  朱雀:socute=s%3Aabc:def  \n"
+                "invalid line\n"
+                " :missing-name\n"
+                "空值:\n"
+                "重复:first=x\n"
+                "重复:second=y\n"
+            ),
+            {
+                "朱雀": "socute=s%3Aabc:def",
+                "重复": "second=y",
+            },
+        )
+
+    def test_parse_manual_site_cookies_accepts_only_text(self):
+        self.assertEqual(self.module.parse_manual_site_cookies(None), {})
+        self.assertEqual(self.module.parse_manual_site_cookies("\n  \n"), {})
+
     def test_cookie_reuse_switch_defaults_to_enabled(self):
         plugin = self.module.PTSiteOpener()
         plugin.init_plugin({"enabled": True})
