@@ -40,6 +40,43 @@ def parse_site_cookie(cookie: Any) -> List[Tuple[str, str]]:
     return pairs
 
 
+def parse_manual_site_cookies(raw_config: Any) -> Dict[str, str]:
+    """Parse one manual Cookie header per site name without exposing values."""
+    if not isinstance(raw_config, str):
+        return {}
+
+    manual_cookies: Dict[str, str] = {}
+    for line_number, raw_line in enumerate(raw_config.splitlines(), start=1):
+        line = raw_line.strip()
+        if not line:
+            continue
+        site_name, separator, cookie = line.partition(":")
+        site_name = site_name.strip()
+        cookie = cookie.strip()
+        if not separator or not site_name or not parse_site_cookie(cookie):
+            logger.warning(f"忽略第 {line_number} 行无效手动站点 Cookie 配置")
+            continue
+        manual_cookies[site_name] = cookie
+    return manual_cookies
+
+
+def resolve_site_cookie_pairs(
+    site: Any,
+    manual_cookies: Dict[str, str],
+    reuse_site_cookie: bool,
+) -> List[Tuple[str, str]]:
+    """Choose managed Cookie first, then named manual Cookie as fallback."""
+    if not reuse_site_cookie:
+        return []
+
+    managed_pairs = parse_site_cookie(getattr(site, "cookie", None))
+    if managed_pairs:
+        return managed_pairs
+
+    site_name = str(getattr(site, "name", "") or "").strip()
+    return parse_site_cookie(manual_cookies.get(site_name))
+
+
 def select_sites(
     sites: Iterable[Any],
     site_mode: str = "all",
@@ -210,7 +247,7 @@ class PTSiteOpener(_PluginBase):
     plugin_name = "PT站点自动打开"
     plugin_desc = "按用户设置的计划任务，通过远程 CDP 打开 MoviePilot 中已启用的站点。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.2.0"
+    plugin_version = "1.3.0"
     plugin_author = "Codex"
     author_url = "https://github.com/Lin-max1032/MoviePilot-Plugins"
     plugin_config_prefix = "ptsiteopener_"
@@ -226,6 +263,7 @@ class PTSiteOpener(_PluginBase):
         self._ttl_minutes = DEFAULT_TTL_MINUTES
         self._notify_enabled = False
         self._reuse_site_cookie = True
+        self._manual_site_cookies: Dict[str, str] = {}
         self._site_mode = "all"
         self._selected_site_ids: List[str] = []
         self._runs: List[_OpenRun] = []
@@ -242,6 +280,9 @@ class PTSiteOpener(_PluginBase):
         self._ttl_minutes = self._coerce_ttl(config.get("ttl_minutes", DEFAULT_TTL_MINUTES))
         self._notify_enabled = bool(config.get("notify_enabled", False))
         self._reuse_site_cookie = bool(config.get("reuse_site_cookie", True))
+        self._manual_site_cookies = parse_manual_site_cookies(
+            config.get("manual_site_cookies", "")
+        )
         self._site_mode = str(config.get("site_mode") or "all")
         if self._site_mode not in {"all", "selected"}:
             self._site_mode = "all"
@@ -460,6 +501,28 @@ class PTSiteOpener(_PluginBase):
                             },
                         ],
                     },
+                    {
+                        "component": "VRow",
+                        "props": {"class": "mb-2"},
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VTextarea",
+                                        "props": {
+                                            "model": "manual_site_cookies",
+                                            "label": "手动站点 Cookie",
+                                            "placeholder": "站点名称:Cookie，例如：朱雀:socute=...",
+                                            "rows": 4,
+                                            "autoGrow": True,
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    },
                 ],
             }
         ], {
@@ -469,6 +532,7 @@ class PTSiteOpener(_PluginBase):
             "ttl_minutes": DEFAULT_TTL_MINUTES,
             "notify_enabled": False,
             "reuse_site_cookie": True,
+            "manual_site_cookies": "",
             "site_mode": "all",
             "site_ids": [],
         }
@@ -570,10 +634,10 @@ class PTSiteOpener(_PluginBase):
         run: _OpenRun,
     ) -> Tuple[Optional[str], Optional[str]]:
         url = str(getattr(site, "url", "")).strip()
-        cookie_pairs = (
-            parse_site_cookie(getattr(site, "cookie", None))
-            if self._reuse_site_cookie
-            else []
+        cookie_pairs = resolve_site_cookie_pairs(
+            site,
+            self._manual_site_cookies,
+            self._reuse_site_cookie,
         )
         if not cookie_pairs:
             target = cdp.send(
