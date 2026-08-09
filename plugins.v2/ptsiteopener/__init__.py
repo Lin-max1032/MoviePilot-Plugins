@@ -136,7 +136,7 @@ class _CdpConnection:
             try:
                 self._socket.close()
             except Exception as error:
-                logger.debug(f"?? CDP ?????{error}")
+                logger.debug(f"关闭 CDP 连接失败：{error}")
 
 
 def _connect_cdp(endpoint_url: str) -> _CdpConnection:
@@ -164,12 +164,12 @@ class _OpenRun:
 
 
 class PTSiteOpener(_PluginBase):
-    """????? MoviePilot ????? PT ???"""
+    """按计划打开 MoviePilot 中已启用的 PT 站点。"""
 
-    plugin_name = "PT??????"
-    plugin_desc = "??????????????? CDP ?? MoviePilot ????????"
+    plugin_name = "PT站点自动打开"
+    plugin_desc = "按用户设置的计划任务，通过远程 CDP 打开 MoviePilot 中已启用的站点。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.1.2"
+    plugin_version = "1.1.3"
     plugin_author = "Codex"
     author_url = "https://github.com/Lin-max1032/MoviePilot-Plugins"
     plugin_config_prefix = "ptsiteopener_"
@@ -188,10 +188,10 @@ class PTSiteOpener(_PluginBase):
         self._selected_site_ids: List[str] = []
         self._runs: List[_OpenRun] = []
         self._runs_lock = threading.RLock()
-        self._last_result = "????"
+        self._last_result = "尚未执行"
 
     def init_plugin(self, config: dict = None):
-        """????????????"""
+        """读取配置并校验计划任务。"""
         self.stop_service()
         config = config or {}
         self._enabled = bool(config.get("enabled", False))
@@ -213,7 +213,7 @@ class PTSiteOpener(_PluginBase):
             CronTrigger.from_crontab(self._schedule)
         except Exception as error:
             self._config_error = str(error)
-            logger.error(f"PT???????????{error}")
+            logger.error(f"PT站点自动打开配置无效：{error}")
 
     @staticmethod
     def _coerce_ttl(value: Any) -> int:
@@ -237,8 +237,8 @@ class PTSiteOpener(_PluginBase):
                 "endpoint": self.run_now,
                 "methods": ["POST"],
                 "auth": "bear",
-                "summary": "???? PT ??",
-                "description": "????????????",
+                "summary": "立即打开 PT 站点",
+                "description": "立即执行一次站点打开任务",
             }
         ]
 
@@ -248,12 +248,12 @@ class PTSiteOpener(_PluginBase):
         try:
             trigger = CronTrigger.from_crontab(self._schedule)
         except Exception as error:
-            logger.error(f"PT?????? Cron ???{error}")
+            logger.error(f"PT站点自动打开 Cron 无效：{error}")
             return []
         return [
             {
                 "id": PLUGIN_ID,
-                "name": "PT????????",
+                "name": "PT站点自动打开服务",
                 "trigger": trigger,
                 "func": self.run_once,
                 "kwargs": {},
@@ -274,7 +274,7 @@ class PTSiteOpener(_PluginBase):
                     }
                 )
         except Exception as error:
-            logger.warning(f"?? MoviePilot ???????{error}")
+            logger.warning(f"读取 MoviePilot 站点列表失败：{error}")
 
         return [
             {
@@ -290,7 +290,7 @@ class PTSiteOpener(_PluginBase):
                                 "content": [
                                     {
                                         "component": "VSwitch",
-                                        "props": {"model": "enabled", "label": "????"},
+                                        "props": {"model": "enabled", "label": "启用插件"},
                                     }
                                 ],
                             },
@@ -302,7 +302,7 @@ class PTSiteOpener(_PluginBase):
                                         "component": "VSwitch",
                                         "props": {
                                             "model": "notify_enabled",
-                                            "label": "??????",
+                                            "label": "开启通知推送",
                                         },
                                     }
                                 ],
@@ -321,7 +321,7 @@ class PTSiteOpener(_PluginBase):
                                         "component": "VTextField",
                                         "props": {
                                             "model": "cdp_url",
-                                            "label": "?? CDP ??",
+                                            "label": "远程 CDP 地址",
                                             "placeholder": DEFAULT_CDP_URL,
                                         },
                                     }
@@ -341,7 +341,7 @@ class PTSiteOpener(_PluginBase):
                                         "component": "VTextField",
                                         "props": {
                                             "model": "schedule",
-                                            "label": "???? Cron????",
+                                            "label": "计划任务 Cron（五段）",
                                             "placeholder": DEFAULT_SCHEDULE,
                                         },
                                     }
@@ -355,7 +355,7 @@ class PTSiteOpener(_PluginBase):
                                         "component": "VTextField",
                                         "props": {
                                             "model": "ttl_minutes",
-                                            "label": "???????????",
+                                            "label": "标签页保留时间（分钟）",
                                             "type": "number",
                                             "min": 0,
                                         },
@@ -376,10 +376,10 @@ class PTSiteOpener(_PluginBase):
                                         "component": "VSelect",
                                         "props": {
                                             "model": "site_mode",
-                                            "label": "????",
+                                            "label": "站点范围",
                                             "items": [
-                                                {"title": "??????", "value": "all"},
-                                                {"title": "??????", "value": "selected"},
+                                                {"title": "全部启用站点", "value": "all"},
+                                                {"title": "指定启用站点", "value": "selected"},
                                             ],
                                         },
                                     }
@@ -393,7 +393,7 @@ class PTSiteOpener(_PluginBase):
                                         "component": "VSelect",
                                         "props": {
                                             "model": "site_ids",
-                                            "label": "????",
+                                            "label": "指定站点",
                                             "multiple": True,
                                             "chips": True,
                                             "clearable": True,
@@ -442,7 +442,7 @@ class PTSiteOpener(_PluginBase):
                                     "block": True,
                                     "prepend-icon": "mdi-play-circle",
                                 },
-                                "text": "????",
+                                "text": "立即执行",
                                 "events": {
                                     "click": {
                                         "api": f"plugin/{self.__class__.__name__}/run",
@@ -458,7 +458,7 @@ class PTSiteOpener(_PluginBase):
 
     @eventmanager.register(EventType.PluginReload)
     def reload(self, event: Event) -> None:
-        """????????????? API ???"""
+        """重新加载插件后重新注册动态 API 路由。"""
         event_data = getattr(event, "event_data", None) or {}
         if event_data.get("plugin_id") == self.__class__.__name__:
             register_plugin_api(plugin_id=self.__class__.__name__)
@@ -481,7 +481,7 @@ class PTSiteOpener(_PluginBase):
         text = message
         urls = list(opened_urls or [])
         if urls:
-            text = f"{message}\n?????\n" + "\n".join(urls)
+            text = f"{message}\n打开地址：\n" + "\n".join(urls)
         try:
             self.post_message(
                 mtype=NotificationType.Plugin,
@@ -489,13 +489,13 @@ class PTSiteOpener(_PluginBase):
                 text=text,
             )
         except Exception as error:
-            logger.warning(f"?? PT ?????????{error}")
+            logger.warning(f"发送 PT 站点执行通知失败：{error}")
 
     def run_now(self) -> Dict[str, Any]:
         """Run one task from the configuration page button."""
-        logger.info("????????")
+        logger.info("收到立即执行请求")
         if self._config_error:
-            message = f"??????????{self._config_error}"
+            message = f"配置无效，无法执行：{self._config_error}"
             self._record_result(message, level="error")
             return {"success": False, "message": message, "opened": []}
 
@@ -510,12 +510,12 @@ class PTSiteOpener(_PluginBase):
         """Execute one scheduled or manual run and return successfully opened URLs."""
         if self._config_error:
             self._record_result(
-                f"??????????{self._config_error}",
+                f"配置无效，无法执行：{self._config_error}",
                 level="error",
             )
             return []
         if not manual and not self._enabled:
-            logger.info("????????????")
+            logger.info("插件未启用，跳过计划执行")
             return []
 
         try:
@@ -526,17 +526,17 @@ class PTSiteOpener(_PluginBase):
                 selected_site_ids=self._selected_site_ids,
             )
         except Exception as error:
-            self._record_result(f"???????{error}", level="error")
+            self._record_result(f"读取站点失败：{error}", level="error")
             return []
 
         if not urls:
-            self._record_result("??????????")
+            self._record_result("没有可打开的启用站点")
             return []
 
         try:
             cdp = self._connect_cdp()
         except Exception as error:
-            self._record_result(f"???? CDP ???{error}", level="error")
+            self._record_result(f"连接远程 CDP 失败：{error}", level="error")
             return []
 
         run = _OpenRun(cdp=cdp)
@@ -559,7 +559,7 @@ class PTSiteOpener(_PluginBase):
                     run.target_ids.append(target_id)
                     opened_urls.append(url)
             except Exception as error:
-                logger.warning(f"?????? {url}?{error}")
+                logger.warning(f"打开站点失败 {url}：{error}")
 
         with run.lock:
             if run.cleaned:
@@ -569,7 +569,7 @@ class PTSiteOpener(_PluginBase):
                 try:
                     cdp.send("Target.activateTarget", {"targetId": run.target_ids[0]})
                 except Exception as error:
-                    logger.warning(f"????????????{error}")
+                    logger.warning(f"激活首个站点标签页失败：{error}")
 
                 run.timer = threading.Timer(
                     self._ttl_minutes * 60,
@@ -581,12 +581,12 @@ class PTSiteOpener(_PluginBase):
 
         if has_targets:
             self._record_result(
-                f"??? {len(opened_urls)} ????{self._ttl_minutes} ?????",
+                f"已打开 {len(opened_urls)} 个站点，{self._ttl_minutes} 分钟后关闭",
                 opened_urls,
             )
         else:
             self._cleanup_run(run)
-            self._record_result("????????", opened_urls)
+            self._record_result("没有成功打开站点", opened_urls)
 
         return opened_urls
 
@@ -610,11 +610,11 @@ class PTSiteOpener(_PluginBase):
             try:
                 run.cdp.send("Target.closeTarget", {"targetId": target_id})
             except Exception as error:
-                logger.warning(f"????????? {target_id}?{error}")
+                logger.warning(f"关闭站点标签页失败 {target_id}：{error}")
         run.cdp.close()
 
     def stop_service(self):
-        """????????????????????????"""
+        """停止插件时立即关闭本插件创建且尚未到期的标签页。"""
         with getattr(self, "_runs_lock", threading.RLock()):
             runs = list(getattr(self, "_runs", []))
         for run in runs:

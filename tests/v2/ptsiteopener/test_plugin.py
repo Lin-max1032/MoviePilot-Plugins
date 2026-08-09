@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import sys
 import types
 import unittest
@@ -12,6 +13,7 @@ PLUGIN_PATH = (
     / "ptsiteopener"
     / "__init__.py"
 )
+PACKAGE_PATH = PLUGIN_PATH.parents[2] / "package.v2.json"
 
 
 class FakeBase:
@@ -189,13 +191,44 @@ class PluginTestCase(unittest.TestCase):
         schedule_field = next(
             item for item in nodes if item.get("props", {}).get("model") == "schedule"
         )
-        self.assertEqual(schedule_field["props"]["label"], "???? Cron????")
+        self.assertEqual(schedule_field["props"]["label"], "计划任务 Cron（五段）")
         self.assertNotIn("hint", schedule_field["props"])
 
         api = plugin.get_api()
         self.assertEqual(len(api), 1)
         self.assertEqual(api[0]["path"], "/run")
         self.assertEqual(api[0]["methods"], ["POST"])
+
+    def test_localized_plugin_text_is_utf8_and_not_replacement_questions(self):
+        plugin = self.module.PTSiteOpener()
+        form, _ = plugin.get_form()
+
+        self.assertEqual(plugin.plugin_version, "1.1.3")
+        self.assertNotIn("?", plugin.plugin_name)
+        self.assertNotIn("?", plugin.plugin_desc)
+
+        localized_values = []
+
+        def collect_text(items):
+            for item in items:
+                props = item.get("props", {})
+                for key in ("label", "placeholder"):
+                    value = props.get(key)
+                    if isinstance(value, str):
+                        localized_values.append(value)
+                value = item.get("text")
+                if isinstance(value, str):
+                    localized_values.append(value)
+                collect_text(item.get("content", []))
+
+        collect_text(form)
+        self.assertTrue(localized_values)
+        self.assertTrue(all("?" not in value for value in localized_values))
+
+        metadata = json.loads(PACKAGE_PATH.read_text(encoding="utf-8"))["PTSiteOpener"]
+        self.assertEqual(metadata["version"], plugin.plugin_version)
+        for key in ("name", "description", "labels"):
+            self.assertNotIn("?", metadata[key])
 
     def test_manual_run_button_is_on_data_page_not_config_form(self):
         plugin = self.module.PTSiteOpener()
@@ -216,7 +249,7 @@ class PluginTestCase(unittest.TestCase):
 
         self.assertFalse(form_buttons)
         self.assertEqual(len(page_buttons), 1)
-        self.assertEqual(page_buttons[0]["text"], "????")
+        self.assertEqual(page_buttons[0]["text"], "立即执行")
         self.assertEqual(page_buttons[0]["events"]["click"]["api"], "plugin/PTSiteOpener/run")
         self.assertEqual(page_buttons[0]["events"]["click"]["method"], "post")
 
@@ -294,7 +327,7 @@ class PluginTestCase(unittest.TestCase):
 
         self.assertEqual(response["success"], True)
         self.assertEqual(response["opened"], ["https://one.example/"])
-        self.assertIn("??? 1 ???", response["message"])
+        self.assertIn("已打开 1 个站点", response["message"])
         self.assertEqual(len(plugin.messages), 1)
         self.assertEqual(plugin.messages[0]["title"], plugin.plugin_name)
         self.assertIn("https://one.example/", plugin.messages[0]["text"])
@@ -314,7 +347,7 @@ class PluginTestCase(unittest.TestCase):
 
         self.assertEqual(response["success"], True)
         self.assertEqual(response["opened"], ["https://one.example/"])
-        self.assertTrue(any("????????" in message for _, message in self.logger.messages))
+        self.assertTrue(any("收到立即执行请求" in message for _, message in self.logger.messages))
 
 
 class FakeCdp:
