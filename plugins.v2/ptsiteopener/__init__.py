@@ -24,33 +24,6 @@ DEFAULT_SCHEDULE = "0 */6 * * *"
 DEFAULT_TTL_MINUTES = 5
 PLUGIN_ID = "PTSiteOpener"
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
-MTEAM_DOMAINS = {"m-team.cc", "m-team.io"}
-
-
-class MTeamAuthError(ValueError):
-    """Raised when M-Team authentication cannot be prepared for CDP."""
-
-
-def is_mteam_site(value: Any) -> bool:
-    """Return whether a site or URL belongs to an M-Team domain."""
-    raw_url = getattr(value, "url", value)
-    parsed = urlsplit(str(raw_url or "").strip())
-    host = (parsed.hostname or "").lower().rstrip(".")
-    return any(
-        host == domain or host.endswith(f".{domain}")
-        for domain in MTEAM_DOMAINS
-    )
-
-
-def resolve_mteam_headers(site: Any) -> Dict[str, str]:
-    """Resolve M-Team's Authorization and API key headers from a site record."""
-    token = str(getattr(site, "token", "") or "").strip()
-    apikey = str(getattr(site, "apikey", "") or "").strip()
-    if not token:
-        raise MTeamAuthError("馒头认证缺少 Token")
-    if not apikey:
-        raise MTeamAuthError("馒头认证缺少 ApiKey")
-    return {"Authorization": token, "x-api-key": apikey}
 
 
 def parse_site_cookie(cookie: Any) -> List[Tuple[str, str]]:
@@ -274,7 +247,7 @@ class PTSiteOpener(_PluginBase):
     plugin_name = "PT站点自动打开"
     plugin_desc = "按用户设置的计划任务，通过远程 CDP 打开 MoviePilot 中已启用的站点。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.4.0"
+    plugin_version = "1.3.0"
     plugin_author = "Codex"
     author_url = "https://github.com/Lin-max1032/MoviePilot-Plugins"
     plugin_config_prefix = "ptsiteopener_"
@@ -654,58 +627,6 @@ class PTSiteOpener(_PluginBase):
             "opened": opened_urls,
         }
 
-    def _open_mteam_site(
-        self,
-        cdp: _CdpConnection,
-        site: Any,
-    ) -> Tuple[Optional[str], Optional[str]]:
-        """Open M-Team with API authentication headers on the target session."""
-        url = str(getattr(site, "url", "")).strip()
-        headers = resolve_mteam_headers(site)
-        target_id: Optional[str] = None
-
-        try:
-            target = cdp.send(
-                "Target.createTarget",
-                {"url": "about:blank", "background": True},
-            )
-            target_id = target.get("targetId") if isinstance(target, dict) else None
-            if not target_id:
-                raise RuntimeError("CDP did not return targetId")
-
-            attached = cdp.send(
-                "Target.attachToTarget",
-                {"targetId": target_id, "flatten": True},
-            )
-            session_id = attached.get("sessionId") if isinstance(attached, dict) else None
-            if not session_id:
-                raise RuntimeError("CDP did not return target sessionId")
-
-            try:
-                cdp.send(
-                    "Network.setExtraHTTPHeaders",
-                    {"headers": headers},
-                    session_id=session_id,
-                )
-            except Exception as error:
-                raise MTeamAuthError(
-                    _sanitize_error(error, headers.values())
-                ) from error
-
-            cdp.send(
-                "Page.navigate",
-                {"url": url},
-                session_id=session_id,
-            )
-            return target_id, None
-        except Exception:
-            if target_id:
-                try:
-                    cdp.send("Target.closeTarget", {"targetId": target_id})
-                except Exception:
-                    pass
-            raise
-
     def _open_site(
         self,
         cdp: _CdpConnection,
@@ -713,9 +634,6 @@ class PTSiteOpener(_PluginBase):
         run: _OpenRun,
     ) -> Tuple[Optional[str], Optional[str]]:
         url = str(getattr(site, "url", "")).strip()
-        if is_mteam_site(site):
-            return self._open_mteam_site(cdp, site)
-
         cookie_pairs = resolve_site_cookie_pairs(
             site,
             self._manual_site_cookies,
@@ -806,26 +724,6 @@ class PTSiteOpener(_PluginBase):
         except Exception as error:
             logger.warning(f"发送 PT 站点 Cookie 告警失败：{error}")
 
-    def _record_mteam_auth_failures(self, failures: List[Tuple[str, str, str]]) -> None:
-        if not failures:
-            return
-
-        lines = []
-        for site_name, url, reason in failures:
-            lines.append(f"{site_name} ({url})：{reason}")
-            logger.warning(f"馒头认证失败 {site_name} ({url})：{reason}")
-
-        if not self._notify_enabled:
-            return
-        try:
-            self.post_message(
-                mtype=NotificationType.Plugin,
-                title=f"{self.plugin_name} 馒头认证告警",
-                text="馒头认证失败：\n" + "\n".join(lines),
-            )
-        except Exception as error:
-            logger.warning(f"发送馒头认证告警失败：{error}")
-
     def run_once(self, manual: bool = False) -> List[str]:
         """Execute one scheduled or manual run and return successfully opened URLs."""
         if self._config_error:
@@ -866,7 +764,6 @@ class PTSiteOpener(_PluginBase):
 
         opened_urls: List[str] = []
         cookie_failures: List[Tuple[str, str, str]] = []
-        auth_failures: List[Tuple[str, str, str]] = []
         for site in selected_sites:
             url = str(getattr(site, "url", "")).strip()
             try:
@@ -889,26 +786,10 @@ class PTSiteOpener(_PluginBase):
                             or url
                         )
                         cookie_failures.append((str(site_name), url, cookie_failure))
-            except MTeamAuthError as error:
-                site_name = (
-                    getattr(site, "name", None)
-                    or getattr(site, "domain", None)
-                    or url
-                )
-                reason = _sanitize_error(
-                    error,
-                    [
-                        str(getattr(site, "token", "") or ""),
-                        str(getattr(site, "apikey", "") or ""),
-                    ],
-                )
-                auth_failures.append((str(site_name), url, reason))
-                continue
             except Exception as error:
                 logger.warning(f"打开站点失败 {url}：{error}")
 
         self._record_cookie_failures(cookie_failures)
-        self._record_mteam_auth_failures(auth_failures)
 
         with run.lock:
             if run.cleaned:
