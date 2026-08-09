@@ -1,6 +1,6 @@
-# PT 站点自动打开
+# PT 站点定时访问
 
-这是一个 MoviePilot V2 插件。它从 MoviePilot 的站点配置中读取已启用站点，通过远程 Chrome DevTools Protocol 打开站点页面，不读取 Chrome 书签。
+这是一个 MoviePilot V2 插件。它按用户配置的 Cron 计划，通过远程 Chrome DevTools Protocol 定时打开 MoviePilot 中已启用的 PT 站点，复用站点 Cookie，并在保留时间到期后关闭插件创建的标签页。不读取 Chrome 书签。
 
 ## 配置
 
