@@ -246,7 +246,7 @@ class PTSiteOpener(_PluginBase):
     """按计划打开 MoviePilot 中已启用的 PT 站点。"""
 
     plugin_name = "PT站点自动打开"
-    plugin_desc = "按用户设置的计划任务，通过远程 CDP 打开 MoviePilot 中已启用的站点。"
+    plugin_desc = "通过远程Chrome CDP 打开 MoviePilot 中已启用的站点，利用真实登录环境，避免站点长期未登录导致封号删号等风险，未使用cookie的站点无法复用站点管理中写入的cookie。"
     plugin_icon = "Moviepilot_A.png"
     plugin_version = "1.3.1"
     plugin_author = "Lin-max1032"
