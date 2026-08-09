@@ -15,13 +15,6 @@
 
 Cookie 选择顺序为：先使用站点管理中的有效 Cookie，再回退到站点名称匹配的手动 Cookie。关闭 `复用站点 Cookie` 后两种 Cookie 都不会注入。手动配置中的无效行会记录告警但不会阻止站点打开。Cookie 注入失败时会记录 MoviePilot 告警日志；开启通知推送后，还会发送站点、地址和失败原因通知，但不会输出 Cookie 内容。
 
-馒头（M-Team）使用独立的 API 认证方式，不使用 Cookie。站点地址域名为 `m-team.cc` 或 `m-team.io` 时，插件会读取 MoviePilot 站点管理中的：
-
-- `Token`：作为 `Authorization` 请求头。
-- `ApiKey`：作为 `x-api-key` 请求头。
-
-插件通过 CDP 在导航前设置认证请求头。馒头缺少 Token 或 ApiKey 时会跳过该站点并记录告警；开启通知推送后会发送认证失败通知，但不会输出凭证内容。馒头认证分支优先于 Cookie 分支，即使站点配置中存在 Cookie 也不会注入 Cookie。
-
 示例：
 
 ```text
