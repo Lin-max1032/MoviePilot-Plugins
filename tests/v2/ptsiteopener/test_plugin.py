@@ -174,10 +174,13 @@ class PluginTestCase(unittest.TestCase):
 
         form, model = plugin.get_form()
         self.assertTrue(form)
+        self.assertEqual(model["cdp_url"], "")
         self.assertEqual(model["schedule"], "0 */6 * * *")
         self.assertEqual(model["ttl_minutes"], 5)
         self.assertFalse(model["notify_enabled"])
         self.assertEqual(model["manual_site_cookies"], "")
+        self.assertEqual(plugin.plugin_author, "Lin-max1032")
+        self.assertEqual(plugin.plugin_version, "1.3.1")
         self.assertTrue(plugin.get_state())
 
         services = plugin.get_service()
@@ -201,7 +204,9 @@ class PluginTestCase(unittest.TestCase):
         schedule_field = next(
             item for item in nodes if item.get("props", {}).get("model") == "schedule"
         )
-        self.assertEqual(schedule_field["props"]["label"], "计划任务 Cron（五段）")
+        self.assertEqual(schedule_field["component"], "VCronField")
+        self.assertEqual(schedule_field["props"]["label"], "执行周期")
+        self.assertEqual(schedule_field["props"]["placeholder"], "五段 Cron 表达式")
         self.assertNotIn("hint", schedule_field["props"])
 
         api = plugin.get_api()
@@ -213,7 +218,7 @@ class PluginTestCase(unittest.TestCase):
         plugin = self.module.PTSiteOpener()
         form, _ = plugin.get_form()
 
-        self.assertEqual(plugin.plugin_version, "1.3.0")
+        self.assertEqual(plugin.plugin_version, "1.3.1")
         self.assertNotIn("?", plugin.plugin_name)
         self.assertNotIn("?", plugin.plugin_desc)
 
@@ -239,6 +244,32 @@ class PluginTestCase(unittest.TestCase):
         self.assertEqual(metadata["version"], plugin.plugin_version)
         for key in ("name", "description", "labels"):
             self.assertNotIn("?", metadata[key])
+
+    def test_empty_cdp_address_is_saved_but_reported_when_run(self):
+        sites = [
+            types.SimpleNamespace(
+                id=1,
+                url="https://one.example/",
+                is_active=True,
+                cookie=None,
+            )
+        ]
+        self.module.SiteOper = lambda: types.SimpleNamespace(list_active=lambda: sites)
+
+        plugin = self.module.PTSiteOpener()
+        plugin.init_plugin({"enabled": True, "cdp_url": ""})
+
+        self.assertEqual(plugin._cdp_url, "")
+        self.assertIsNone(plugin._config_error)
+        self.assertTrue(plugin.get_state())
+
+        response = plugin.run_now()
+
+        self.assertFalse(response["success"])
+        self.assertIn("未配置远程 CDP 地址", response["message"])
+        self.assertTrue(
+            any("未配置远程 CDP 地址" in message for _, message in self.logger.messages)
+        )
 
     def test_parse_site_cookie_preserves_equals_and_skips_invalid_segments(self):
         self.assertEqual(
