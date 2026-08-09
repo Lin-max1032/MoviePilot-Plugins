@@ -268,6 +268,24 @@ class PluginTestCase(unittest.TestCase):
         self.assertEqual(self.module.parse_manual_site_cookies(None), {})
         self.assertEqual(self.module.parse_manual_site_cookies("\n  \n"), {})
 
+    def test_resolve_site_cookie_pairs_prefers_managed_cookie_and_honors_switch(self):
+        manual = {"朱雀": "manual=1"}
+        site_without_cookie = types.SimpleNamespace(name="朱雀", cookie=None)
+        site_with_cookie = types.SimpleNamespace(name="朱雀", cookie="managed=2")
+
+        self.assertEqual(
+            self.module.resolve_site_cookie_pairs(site_without_cookie, manual, True),
+            [("manual", "1")],
+        )
+        self.assertEqual(
+            self.module.resolve_site_cookie_pairs(site_with_cookie, manual, True),
+            [("managed", "2")],
+        )
+        self.assertEqual(
+            self.module.resolve_site_cookie_pairs(site_without_cookie, manual, False),
+            [],
+        )
+
     def test_cookie_reuse_switch_defaults_to_enabled(self):
         plugin = self.module.PTSiteOpener()
         plugin.init_plugin({"enabled": True})

@@ -60,6 +60,23 @@ def parse_manual_site_cookies(raw_config: Any) -> Dict[str, str]:
     return manual_cookies
 
 
+def resolve_site_cookie_pairs(
+    site: Any,
+    manual_cookies: Dict[str, str],
+    reuse_site_cookie: bool,
+) -> List[Tuple[str, str]]:
+    """Choose managed Cookie first, then named manual Cookie as fallback."""
+    if not reuse_site_cookie:
+        return []
+
+    managed_pairs = parse_site_cookie(getattr(site, "cookie", None))
+    if managed_pairs:
+        return managed_pairs
+
+    site_name = str(getattr(site, "name", "") or "").strip()
+    return parse_site_cookie(manual_cookies.get(site_name))
+
+
 def select_sites(
     sites: Iterable[Any],
     site_mode: str = "all",
@@ -246,6 +263,7 @@ class PTSiteOpener(_PluginBase):
         self._ttl_minutes = DEFAULT_TTL_MINUTES
         self._notify_enabled = False
         self._reuse_site_cookie = True
+        self._manual_site_cookies: Dict[str, str] = {}
         self._site_mode = "all"
         self._selected_site_ids: List[str] = []
         self._runs: List[_OpenRun] = []
@@ -262,6 +280,9 @@ class PTSiteOpener(_PluginBase):
         self._ttl_minutes = self._coerce_ttl(config.get("ttl_minutes", DEFAULT_TTL_MINUTES))
         self._notify_enabled = bool(config.get("notify_enabled", False))
         self._reuse_site_cookie = bool(config.get("reuse_site_cookie", True))
+        self._manual_site_cookies = parse_manual_site_cookies(
+            config.get("manual_site_cookies", "")
+        )
         self._site_mode = str(config.get("site_mode") or "all")
         if self._site_mode not in {"all", "selected"}:
             self._site_mode = "all"
@@ -590,10 +611,10 @@ class PTSiteOpener(_PluginBase):
         run: _OpenRun,
     ) -> Tuple[Optional[str], Optional[str]]:
         url = str(getattr(site, "url", "")).strip()
-        cookie_pairs = (
-            parse_site_cookie(getattr(site, "cookie", None))
-            if self._reuse_site_cookie
-            else []
+        cookie_pairs = resolve_site_cookie_pairs(
+            site,
+            self._manual_site_cookies,
+            self._reuse_site_cookie,
         )
         if not cookie_pairs:
             target = cdp.send(
