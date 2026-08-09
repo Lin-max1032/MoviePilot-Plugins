@@ -150,6 +150,187 @@ class PluginTestCase(unittest.TestCase):
             ["http://two.example/"],
         )
 
+    def test_is_mteam_site_matches_mteam_domains_only(self):
+        self.assertTrue(self.module.is_mteam_site("https://kp.m-team.cc/"))
+        self.assertTrue(self.module.is_mteam_site("https://m-team.io/"))
+        self.assertFalse(self.module.is_mteam_site("https://m-team.cc.example/"))
+
+    def test_resolve_mteam_headers_uses_site_token_and_apikey(self):
+        site = types.SimpleNamespace(token=" Bearer token ", apikey=" key ")
+
+        self.assertEqual(
+            self.module.resolve_mteam_headers(site),
+            {"Authorization": "Bearer token", "x-api-key": "key"},
+        )
+
+    def test_resolve_mteam_headers_rejects_missing_credentials(self):
+        with self.assertRaises(self.module.MTeamAuthError):
+            self.module.resolve_mteam_headers(
+                types.SimpleNamespace(token="", apikey="key")
+            )
+
+    def test_run_once_uses_mteam_headers_before_navigation(self):
+        sites = [
+            types.SimpleNamespace(
+                id=1,
+                name="M-Team",
+                url="https://kp.m-team.cc/",
+                is_active=True,
+                cookie="stale=1",
+                token="Bearer token",
+                apikey="api-key",
+            )
+        ]
+        cdp = FakeCdp()
+        self.module.SiteOper = lambda: types.SimpleNamespace(list_active=lambda: sites)
+        self.module.threading.Timer = FakeTimer
+        FakeTimer.instances.clear()
+
+        plugin = self.module.PTSiteOpener()
+        plugin.init_plugin({"enabled": True})
+        plugin._connect_cdp = lambda: cdp
+
+        result = plugin.run_once()
+
+        self.assertEqual(result, ["https://kp.m-team.cc/"])
+        self.assertEqual(
+            [method for method, _, _ in cdp.calls],
+            [
+                "Target.createTarget",
+                "Target.attachToTarget",
+                "Network.setExtraHTTPHeaders",
+                "Page.navigate",
+                "Target.activateTarget",
+            ],
+        )
+        self.assertEqual(
+            cdp.calls[2][1],
+            {
+                "headers": {
+                    "Authorization": "Bearer token",
+                    "x-api-key": "api-key",
+                }
+            },
+        )
+
+    def test_missing_mteam_token_logs_notifies_and_continues(self):
+        sites = [
+            types.SimpleNamespace(
+                id=1,
+                name="M-Team",
+                url="https://kp.m-team.cc/",
+                is_active=True,
+                cookie=None,
+                token=None,
+                apikey="api-secret",
+            ),
+            types.SimpleNamespace(
+                id=2,
+                name="普通站点",
+                url="https://one.example/",
+                is_active=True,
+                cookie=None,
+            ),
+        ]
+        cdp = FakeCdp()
+        self.module.SiteOper = lambda: types.SimpleNamespace(list_active=lambda: sites)
+        self.module.threading.Timer = FakeTimer
+        FakeTimer.instances.clear()
+
+        plugin = self.module.PTSiteOpener()
+        plugin.init_plugin({"enabled": True, "notify_enabled": True})
+        plugin._connect_cdp = lambda: cdp
+
+        result = plugin.run_once()
+
+        self.assertEqual(result, ["https://one.example/"])
+        warning_texts = [
+            message for level, message in self.logger.messages if level == "warning"
+        ]
+        self.assertTrue(any("馒头认证失败" in message for message in warning_texts))
+        self.assertTrue(any("缺少 Token" in message for message in warning_texts))
+        self.assertTrue(all("api-secret" not in message for message in warning_texts))
+        failure_messages = [
+            message["text"]
+            for message in plugin.messages
+            if "馒头认证失败" in message["text"]
+        ]
+        self.assertEqual(len(failure_messages), 1)
+        self.assertIn("M-Team", failure_messages[0])
+        self.assertNotIn("api-secret", failure_messages[0])
+        self.assertNotIn("Network.setCookie", [method for method, _, _ in cdp.calls])
+
+    def test_missing_mteam_apikey_is_reported_without_opening_target(self):
+        sites = [
+            types.SimpleNamespace(
+                id=1,
+                name="M-Team",
+                url="https://kp.m-team.cc/",
+                is_active=True,
+                cookie="stale=1",
+                token="Bearer token-secret",
+                apikey=None,
+            )
+        ]
+        cdp = FakeCdp()
+        self.module.SiteOper = lambda: types.SimpleNamespace(list_active=lambda: sites)
+        self.module.threading.Timer = FakeTimer
+        FakeTimer.instances.clear()
+
+        plugin = self.module.PTSiteOpener()
+        plugin.init_plugin({"enabled": True, "notify_enabled": True})
+        plugin._connect_cdp = lambda: cdp
+
+        result = plugin.run_once()
+
+        self.assertEqual(result, [])
+        warning_texts = [
+            message for level, message in self.logger.messages if level == "warning"
+        ]
+        self.assertTrue(any("缺少 ApiKey" in message for message in warning_texts))
+        self.assertTrue(all("token-secret" not in message for message in warning_texts))
+        self.assertEqual(cdp.calls, [])
+
+    def test_mteam_header_failure_is_redacted_and_notified(self):
+        sites = [
+            types.SimpleNamespace(
+                id=1,
+                name="M-Team",
+                url="https://kp.m-team.cc/",
+                is_active=True,
+                cookie=None,
+                token="Bearer token-secret",
+                apikey="api-secret",
+            )
+        ]
+        cdp = FakeCdp(extra_headers_failure=True)
+        self.module.SiteOper = lambda: types.SimpleNamespace(list_active=lambda: sites)
+        self.module.threading.Timer = FakeTimer
+        FakeTimer.instances.clear()
+
+        plugin = self.module.PTSiteOpener()
+        plugin.init_plugin({"enabled": True, "notify_enabled": True})
+        plugin._connect_cdp = lambda: cdp
+
+        result = plugin.run_once()
+
+        self.assertEqual(result, [])
+        warning_texts = [
+            message for level, message in self.logger.messages if level == "warning"
+        ]
+        self.assertTrue(any("headers rejected" in message for message in warning_texts))
+        self.assertTrue(all("token-secret" not in message for message in warning_texts))
+        self.assertTrue(all("api-secret" not in message for message in warning_texts))
+        failure_messages = [
+            message["text"]
+            for message in plugin.messages
+            if "馒头认证失败" in message["text"]
+        ]
+        self.assertEqual(len(failure_messages), 1)
+        self.assertNotIn("token-secret", failure_messages[0])
+        self.assertNotIn("api-secret", failure_messages[0])
+        self.assertEqual(cdp.closed, ["opened-1"])
+
     def test_resolve_websocket_url_uses_remote_cdp_host(self):
         self.assertEqual(
             self.module.resolve_websocket_url(
@@ -213,7 +394,7 @@ class PluginTestCase(unittest.TestCase):
         plugin = self.module.PTSiteOpener()
         form, _ = plugin.get_form()
 
-        self.assertEqual(plugin.plugin_version, "1.3.0")
+        self.assertEqual(plugin.plugin_version, "1.4.0")
         self.assertNotIn("?", plugin.plugin_name)
         self.assertNotIn("?", plugin.plugin_desc)
 
@@ -599,12 +780,13 @@ class PluginTestCase(unittest.TestCase):
 
 
 class FakeCdp:
-    def __init__(self, cookie_failure=False):
+    def __init__(self, cookie_failure=False, extra_headers_failure=False):
         self.calls = []
         self.closed = []
         self.connected = True
         self.next_target = 0
         self.cookie_failure = cookie_failure
+        self.extra_headers_failure = extra_headers_failure
 
     def send(self, method, params=None, session_id=None):
         params = params or {}
@@ -620,6 +802,10 @@ class FakeCdp:
             if self.cookie_failure:
                 raise RuntimeError("cookie rejected")
             return {"success": True}
+        if method == "Network.setExtraHTTPHeaders":
+            if self.extra_headers_failure:
+                raise RuntimeError("headers rejected")
+            return {}
         if method == "Page.navigate":
             return {"frameId": "frame-1"}
         if method == "Target.activateTarget":
