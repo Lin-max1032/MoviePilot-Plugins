@@ -20,7 +20,7 @@ from app.schemas.types import EventType, NotificationType
 
 
 DEFAULT_CDP_URL = ""
-CDP_URL_PLACEHOLDER = "例如：http://127.0.0.1:9222/json/version"
+CDP_URL_PLACEHOLDER = "例如：http://127.0.0.1:16002/json/version"
 DEFAULT_SCHEDULE = "0 */6 * * *"
 DEFAULT_TTL_MINUTES = 5
 PLUGIN_ID = "PTSiteOpener"
