@@ -180,7 +180,7 @@ class PluginTestCase(unittest.TestCase):
         self.assertFalse(model["notify_enabled"])
         self.assertEqual(model["manual_site_cookies"], "")
         self.assertEqual(plugin.plugin_author, "Lin-max1032")
-        self.assertEqual(plugin.plugin_version, "1.3.1")
+        self.assertEqual(plugin.plugin_version, "1.3.2")
         self.assertTrue(plugin.get_state())
 
         services = plugin.get_service()
@@ -218,7 +218,7 @@ class PluginTestCase(unittest.TestCase):
         plugin = self.module.PTSiteOpener()
         form, _ = plugin.get_form()
 
-        self.assertEqual(plugin.plugin_version, "1.3.1")
+        self.assertEqual(plugin.plugin_version, "1.3.2")
         self.assertNotIn("?", plugin.plugin_name)
         self.assertNotIn("?", plugin.plugin_desc)
 

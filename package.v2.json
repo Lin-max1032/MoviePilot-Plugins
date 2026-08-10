@@ -3,11 +3,12 @@
     "name": "PT站点定时访问",
     "description": "按用户配置的 Cron 计划，通过远程 CDP 定时打开 MoviePilot 中已启用的 PT 站点，复用站点 Cookie，并在保留时间到期后关闭插件创建的标签页。",
     "labels": "站点,自动化,计划任务,CDP",
-    "version": "1.3.1",
+    "version": "1.3.2",
     "icon": "Moviepilot_A.png",
     "author": "Lin-max1032",
     "level": 1,
     "history": {
+      "1.3.2": "优化执行结果通知，使用 PT 站点名称替代站点 URL。",
       "1.3.1": "远程 CDP 地址默认留空；配置页使用 V2 Cron 周期计算器。",
       "1.3.0": "新增按站点名称填写手动 Cookie 的回退配置；仅在站点管理没有有效 Cookie 时使用。",
       "1.2.0": "新增复用 MoviePilot 站点 Cookie 功能，注入失败时记录告警并按通知开关推送失败原因。",

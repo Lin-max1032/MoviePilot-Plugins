@@ -248,7 +248,7 @@ class PTSiteOpener(_PluginBase):
     plugin_name = "PT站点定时访问"
     plugin_desc = "按用户配置的 Cron 计划，通过远程 CDP 定时打开 MoviePilot 中已启用的 PT 站点，复用站点 Cookie，并在保留时间到期后关闭插件创建的标签页。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.3.1"
+    plugin_version = "1.3.2"
     plugin_author = "Lin-max1032"
     author_url = "https://github.com/Lin-max1032/MoviePilot-Plugins"
     plugin_config_prefix = "ptsiteopener_"
