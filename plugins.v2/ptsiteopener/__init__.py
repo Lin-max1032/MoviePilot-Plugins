@@ -594,7 +594,7 @@ class PTSiteOpener(_PluginBase):
     def _record_result(
         self,
         message: str,
-        opened_urls: Optional[Iterable[str]] = None,
+        opened_sites: Optional[Iterable[str]] = None,
         level: str = "info",
     ) -> None:
         """Store the latest result and optionally publish it through MoviePilot."""
@@ -604,9 +604,9 @@ class PTSiteOpener(_PluginBase):
             return
 
         text = message
-        urls = list(opened_urls or [])
-        if urls:
-            text = f"{message}\n打开地址：\n" + "\n".join(urls)
+        site_names = [str(site).strip() for site in (opened_sites or []) if str(site).strip()]
+        if site_names:
+            text = f"{message}\n打开站点：\n" + "\n".join(site_names)
         try:
             self.post_message(
                 mtype=NotificationType.Plugin,
@@ -767,9 +767,15 @@ class PTSiteOpener(_PluginBase):
             self._runs.append(run)
 
         opened_urls: List[str] = []
+        opened_site_names: List[str] = []
         cookie_failures: List[Tuple[str, str, str]] = []
         for site in selected_sites:
             url = str(getattr(site, "url", "")).strip()
+            site_name = str(
+                getattr(site, "name", None)
+                or getattr(site, "domain", None)
+                or url
+            ).strip()
             try:
                 with run.lock:
                     if run.cleaned:
@@ -783,6 +789,7 @@ class PTSiteOpener(_PluginBase):
                         raise RuntimeError("CDP did not return targetId")
                     run.target_ids.append(target_id)
                     opened_urls.append(url)
+                    opened_site_names.append(site_name)
                     if cookie_failure:
                         site_name = (
                             getattr(site, "name", None)
@@ -816,11 +823,11 @@ class PTSiteOpener(_PluginBase):
         if has_targets:
             self._record_result(
                 f"已打开 {len(opened_urls)} 个站点，{self._ttl_minutes} 分钟后关闭",
-                opened_urls,
+                opened_site_names,
             )
         else:
             self._cleanup_run(run)
-            self._record_result("没有成功打开站点", opened_urls)
+            self._record_result("没有成功打开站点", opened_site_names)
 
         return opened_urls
 
