@@ -592,7 +592,14 @@ class PluginTestCase(unittest.TestCase):
         self.assertTrue(FakeTimer.instances[0].cancelled)
 
     def test_manual_run_api_opens_sites_and_returns_result(self):
-        sites = [types.SimpleNamespace(id=1, url="https://one.example/", is_active=True)]
+        sites = [
+            types.SimpleNamespace(
+                id=1,
+                name="One",
+                url="https://one.example/",
+                is_active=True,
+            )
+        ]
         cdp = FakeCdp()
         self.module.SiteOper = lambda: types.SimpleNamespace(list_active=lambda: sites)
         self.module.threading.Timer = FakeTimer
@@ -609,7 +616,8 @@ class PluginTestCase(unittest.TestCase):
         self.assertIn("已打开 1 个站点", response["message"])
         self.assertEqual(len(plugin.messages), 1)
         self.assertEqual(plugin.messages[0]["title"], plugin.plugin_name)
-        self.assertIn("https://one.example/", plugin.messages[0]["text"])
+        self.assertIn("One", plugin.messages[0]["text"])
+        self.assertNotIn("https://one.example/", plugin.messages[0]["text"])
 
     def test_manual_run_api_works_when_schedule_is_disabled_and_logs_entry(self):
         sites = [types.SimpleNamespace(id=1, url="https://one.example/", is_active=True)]
