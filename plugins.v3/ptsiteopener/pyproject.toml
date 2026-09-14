@@ -1,0 +1,8 @@
+[project]
+name = "moviepilot-plugin-ptsiteopener"
+dynamic = ["version"]
+description = "按用户配置的 Cron 计划，通过远程 CDP 定时打开 MoviePilot 中已启用的 PT 站点。"
+requires-python = ">=3.12"
+dependencies = [
+    "websocket-client>=1.8.0",
+]
